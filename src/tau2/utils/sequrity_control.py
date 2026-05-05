@@ -5,6 +5,9 @@ Docs: https://sequrity-ai.github.io/sequrity-api/dev/control/getting_started/too
 
 Enable with SEQURITY_CONTROL_ENABLED=1 and set SEQURITY_API_KEY plus a provider key
 (X-Api-Key), e.g. OPENROUTER_API_KEY when SEQURITY_SERVICE_PROVIDER=openrouter.
+
+Requests always send ``X-Features`` = ``FeaturesHeader.dual_llm()`` JSON
+(``{"agent_arch": "dual-llm"}``). ``X-Policy`` and ``X-Config`` are not sent.
 """
 
 from __future__ import annotations
@@ -106,9 +109,8 @@ def _validate_config() -> tuple[str, str, str, str]:
     return sequrity_key, provider_key, base_url, service_provider
 
 
-def _optional_header(name: str) -> Optional[str]:
-    v = os.getenv(name)
-    return v if v else None
+# Serialized form of Sequrity ``FeaturesHeader.dual_llm()`` (REST tutorial / OpenAPI parity).
+FEATURES_HEADER_DUAL_LLM_JSON = json.dumps({"agent_arch": "dual-llm"})
 
 
 def chat_completion(
@@ -127,19 +129,8 @@ def chat_completion(
         "Authorization": f"Bearer {sequrity_key}",
         "Content-Type": "application/json",
         "X-Api-Key": provider_key,
+        "X-Features": FEATURES_HEADER_DUAL_LLM_JSON,
     }
-    features = _optional_header("SEQURITY_FEATURES_JSON")
-    if features is None:
-        features = json.dumps({"agent_arch": "dual-llm"})
-    headers["X-Features"] = features
-
-    policy = _optional_header("SEQURITY_POLICY_JSON")
-    if policy:
-        headers["X-Policy"] = policy
-
-    config = _optional_header("SEQURITY_CONFIG_JSON")
-    if config:
-        headers["X-Config"] = config
 
     payload: dict[str, Any] = {
         "model": model,
