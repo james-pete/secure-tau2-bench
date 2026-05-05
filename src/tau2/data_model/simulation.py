@@ -454,6 +454,20 @@ class BaseRunConfig(BaseModel):
         ),
     ]
 
+    sequrity_mode: Annotated[
+        Optional[Literal["none", "both", "user", "agent"]],
+        Field(
+            description=(
+                "Sequrity Control routing (requires SEQURITY_CONTROL_ENABLED). "
+                "Unset: legacy env-only toggle. "
+                "none: disable Sequrity. "
+                "both: all LLM calls. "
+                "agent / user: only that role's tagged generate() calls."
+            ),
+            default=None,
+        ),
+    ]
+
     # ---- Abstract-ish properties (subclasses must override) ----
 
     @property

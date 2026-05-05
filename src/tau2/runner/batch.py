@@ -55,6 +55,7 @@ from tau2.user.user_simulator import (
 from tau2.user_simulation_voice_presets import COMPLEXITY_CONFIGS
 from tau2.utils.display import ConsoleDisplay, Text
 from tau2.utils.llm_utils import llm_log_mode, set_llm_log_dir, set_llm_log_mode
+from tau2.utils.sequrity_control import SEQURITY_CLI_MODE
 from tau2.utils.utils import DATA_DIR
 
 # Context variable to track current simulation_id for log filtering
@@ -635,6 +636,7 @@ def run_tasks(
 
         _init_thread_event_loop()
         set_llm_log_mode(_main_thread_llm_log_mode)
+        _sequrity_token = SEQURITY_CLI_MODE.set(config.sequrity_mode)
         task_key = f"{task.id}.{trial}"
         monitor.task_started(task_key, trial)
 
@@ -796,6 +798,7 @@ def run_tasks(
 
             return result
         finally:
+            SEQURITY_CLI_MODE.reset(_sequrity_token)
             monitor.task_finished(task_key)
             _cleanup_thread_event_loop()
 

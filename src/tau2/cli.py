@@ -419,6 +419,17 @@ def add_run_args(parser):
         help="Max retries when a user simulator hallucination is detected (full-duplex only). Set to 0 to disable.",
     )
 
+    parser.add_argument(
+        "--sequrity-mode",
+        type=str,
+        default=None,
+        choices=["none", "both", "user", "agent"],
+        help=(
+            "Sequrity Control when SEQURITY_CONTROL_ENABLED=1: omit flag for legacy env-only behavior; "
+            "none=disable; both=all LLM calls; agent or user=only that simulator (+matching tagged paths)."
+        ),
+    )
+
 
 def _get_version() -> str:
     from tau2.utils.utils import get_tau2_version
@@ -651,6 +662,7 @@ def main():
             hallucination_retries=args.hallucination_retries,
             retrieval_config=args.retrieval_config,
             retrieval_config_kwargs=args.retrieval_config_kwargs,
+            sequrity_mode=args.sequrity_mode,
         )
 
         if audio_native_config is not None:

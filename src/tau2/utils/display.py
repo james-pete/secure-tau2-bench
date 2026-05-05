@@ -321,6 +321,8 @@ class ConsoleDisplay:
             "",
             f"[{c.section_header}]Agent:[/] {effective_agent} → {agent_model_str}",
             f"[{c.section_header}]User:[/]  {effective_user} → {effective_user_model}",
+            f"[{c.section_header}]Sequrity:[/] "
+            f"{config.sequrity_mode if config.sequrity_mode is not None else 'unset (env-only)'}",
         ]
 
         # Add save/run settings on one line

@@ -8,7 +8,7 @@ import warnings
 from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 import httpx
 import litellm
@@ -39,6 +39,11 @@ from tau2.data_model.message import (
     UserMessage,
 )
 from tau2.environment.tool import Tool
+from tau2.utils.sequrity_control import (
+    assistant_message_from_response,
+    chat_completion,
+    use_sequrity_for_call,
+)
 
 # Suppress Pydantic serialization warnings from LiteLLM
 # These occur due to type mismatches between streaming and non-streaming response types
@@ -358,6 +363,7 @@ def generate(
     tools: Optional[list[Tool]] = None,
     tool_choice: Optional[str] = None,
     call_name: Optional[str] = None,
+    llm_role: Optional[Literal["agent", "user"]] = None,
     **kwargs: Any,
 ) -> UserMessage | AssistantMessage:
     """
@@ -371,6 +377,8 @@ def generate(
         call_name: Optional name identifying the purpose of this LLM call
                    (e.g., "detect_interrupt", "generate_agent_message").
                    Used for logging and debugging.
+        llm_role: When using Sequrity Control with ``--sequrity-mode agent`` or
+                  ``user``, tag the caller so routing applies (agent/user simulator).
         **kwargs: Additional arguments to pass to the model.
 
     Returns: A tuple containing the message and the cost.
@@ -378,12 +386,6 @@ def generate(
     validate_message_history(messages)
     if kwargs.get("num_retries") is None:
         kwargs["num_retries"] = DEFAULT_MAX_RETRIES
-
-    # Vertex AI Gemini 3 models require VERTEXAI_LOCATION="global"
-    if model.startswith("vertex_ai/gemini-3") and not os.environ.get(
-        "VERTEXAI_LOCATION"
-    ):
-        os.environ["VERTEXAI_LOCATION"] = "global"
 
     litellm_messages = to_litellm_messages(messages)
     tools_schema = [tool.openai_schema for tool in tools] if tools else None
@@ -403,6 +405,48 @@ def generate(
         },
     }
     request_timestamp = datetime.now().isoformat()
+
+    if use_sequrity_for_call(llm_role):
+        num_retries = int(kwargs.get("num_retries") or DEFAULT_MAX_RETRIES)
+        completion_kwargs = {k: v for k, v in kwargs.items() if k != "num_retries"}
+        start_time = time.perf_counter()
+        try:
+            response_json = chat_completion(
+                model=model,
+                messages=litellm_messages,
+                tools=tools_schema,
+                tool_choice=tool_choice,
+                completion_kwargs=completion_kwargs,
+                num_retries=num_retries,
+            )
+        except Exception as e:
+            logger.error(e)
+            raise e
+        generation_time_seconds = time.perf_counter() - start_time
+        message = assistant_message_from_response(
+            response_json, generation_time_seconds=generation_time_seconds
+        )
+        response_data = {
+            "timestamp": datetime.now().isoformat(),
+            "content": message.content,
+            "tool_calls": (
+                [tc.model_dump() for tc in message.tool_calls]
+                if message.tool_calls
+                else None
+            ),
+            "cost": message.cost,
+            "usage": message.usage,
+            "generation_time_seconds": generation_time_seconds,
+        }
+        request_data["timestamp"] = request_timestamp
+        _write_llm_log(request_data, response_data, call_name=call_name)
+        return message
+
+    # Vertex AI Gemini 3 models require VERTEXAI_LOCATION="global"
+    if model.startswith("vertex_ai/gemini-3") and not os.environ.get(
+        "VERTEXAI_LOCATION"
+    ):
+        os.environ["VERTEXAI_LOCATION"] = "global"
 
     start_time = time.perf_counter()
     try:

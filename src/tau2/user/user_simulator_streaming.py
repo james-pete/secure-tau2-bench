@@ -294,6 +294,7 @@ def user_interruption_policy(
             model=VOICE_USER_SIMULATOR_DECISION_MODEL,
             messages=decision_messages,
             call_name="interruption_decision",
+            llm_role="user",
         )
 
         decision_text = response.content.strip().upper()
@@ -362,6 +363,7 @@ def user_backchannel_policy(
             model=VOICE_USER_SIMULATOR_DECISION_MODEL,
             messages=decision_messages,
             call_name="backchannel_decision",
+            llm_role="user",
         )
 
         decision_text = response.content.strip().upper()
@@ -1269,6 +1271,7 @@ class VoiceStreamingUserSimulator(
             tools=self.tools,
             call_name="user_streaming_response",
             **self.llm_args,
+            llm_role="user",
         )
 
         # Store LLM timing on state for later use when updating TurnTakingAction

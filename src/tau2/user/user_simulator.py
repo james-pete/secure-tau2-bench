@@ -238,6 +238,7 @@ class UserSimulator(
             tools=self.tools,
             call_name="user_simulator_response",
             **self.llm_args,
+            llm_role="user",
         )
 
         user_response = assistant_message.content
