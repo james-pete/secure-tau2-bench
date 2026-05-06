@@ -3,11 +3,17 @@ Sequrity Control API (dual-LLM secure tool use) — optional backend for generat
 
 Docs: https://sequrity-ai.github.io/sequrity-api/dev/control/getting_started/tool_use_dual_llm/
 
-Enable with SEQURITY_CONTROL_ENABLED=1 and set SEQURITY_API_KEY plus a provider key
-(X-Api-Key), e.g. OPENROUTER_API_KEY when SEQURITY_SERVICE_PROVIDER=openrouter.
+Routing is controlled only by ``--sequrity-mode`` / RunConfig ``sequrity_mode`` (see
+:data:`SEQURITY_CLI_MODE`). When that mode sends traffic through Sequrity, set
+SEQURITY_API_KEY plus a provider key (X-Api-Key), e.g. OPENROUTER_API_KEY when
+SEQURITY_SERVICE_PROVIDER=openrouter.
 
-Requests always send ``X-Features`` = ``FeaturesHeader.dual_llm()`` JSON
-(``{"agent_arch": "dual-llm"}``). ``X-Policy`` and ``X-Config`` are not sent.
+Requests always send ``X-Features`` = dual-LLM JSON (``{"agent_arch": "dual-llm"}``),
+and ``X-Config`` = ``FineGrainedConfigHeader(response_format=ResponseFormatOverrides(include_program=True))``
+(REST: ``{"response_format": {"include_program": true}}``).
+``X-Policy`` is not sent. When the API returns a generated program (often under
+``choices[0].message.program`` or JSON ``content``, not only when ``content`` is set —
+tool-call rounds frequently have ``content`` null), it is printed (Rich syntax highlight).
 """
 
 from __future__ import annotations
@@ -41,32 +47,20 @@ _FORWARD_PARAM_KEYS = frozenset(
 )
 
 
-def control_enabled() -> bool:
-    return os.getenv("SEQURITY_CONTROL_ENABLED", "").lower() in (
-        "1",
-        "true",
-        "yes",
-    )
-
-
 def use_sequrity_for_call(
     llm_role: Optional[Literal["agent", "user"]],
 ) -> bool:
-    """Whether this LLM call should use Sequrity Control (requires control_enabled()).
+    """Whether this LLM call should use Sequrity Control.
 
     CLI ``--sequrity-mode`` is stored in :data:`SEQURITY_CLI_MODE` during batch runs.
-    When unset (None), legacy behavior: if ``SEQURITY_CONTROL_ENABLED``, all calls use Sequrity.
+    When unset (``None``), no Sequrity — use LiteLLM (default tau2 behavior).
 
-    * ``none`` — never use Sequrity (even if env flag is set).
+    * ``none`` — never use Sequrity.
     * ``both`` — all ``generate()`` calls (including evaluators, reviews).
     * ``agent`` / ``user`` — only calls tagged with that ``llm_role``.
     """
-    if not control_enabled():
-        return False
     mode = SEQURITY_CLI_MODE.get()
-    if mode is None:
-        return True
-    if mode == "none":
+    if mode is None or mode == "none":
         return False
     if mode == "both":
         return True
@@ -96,7 +90,7 @@ def _validate_config() -> tuple[str, str, str, str]:
     sequrity_key = os.getenv("SEQURITY_API_KEY", "")
     if not sequrity_key:
         raise ValueError(
-            "SEQURITY_CONTROL_ENABLED is set but SEQURITY_API_KEY is missing."
+            "SEQURITY_API_KEY is missing (required when Sequrity routing is active)."
         )
     provider_key = _provider_api_key()
     if not provider_key:
@@ -111,6 +105,11 @@ def _validate_config() -> tuple[str, str, str, str]:
 
 # Serialized form of Sequrity ``FeaturesHeader.dual_llm()`` (REST tutorial / OpenAPI parity).
 FEATURES_HEADER_DUAL_LLM_JSON = json.dumps({"agent_arch": "dual-llm"})
+
+# FineGrainedConfigHeader(response_format=ResponseFormatOverrides(include_program=True))
+FINE_GRAINED_CONFIG_INCLUDE_PROGRAM_JSON = json.dumps(
+    {"response_format": {"include_program": True}}
+)
 
 
 def chat_completion(
@@ -130,6 +129,7 @@ def chat_completion(
         "Content-Type": "application/json",
         "X-Api-Key": provider_key,
         "X-Features": FEATURES_HEADER_DUAL_LLM_JSON,
+        "X-Config": FINE_GRAINED_CONFIG_INCLUDE_PROGRAM_JSON,
     }
 
     payload: dict[str, Any] = {
@@ -158,6 +158,124 @@ def chat_completion(
             )
     assert last_exc is not None
     raise last_exc
+
+
+def _find_program_in_object(
+    obj: Any, *, max_depth: int, _depth: int = 0
+) -> Optional[str]:
+    """Depth-limited search for a string ``program`` field (Sequrity-specific nesting)."""
+    if _depth > max_depth:
+        return None
+    if isinstance(obj, dict):
+        prog = obj.get("program")
+        if isinstance(prog, str) and prog.strip():
+            return prog
+        for v in obj.values():
+            found = _find_program_in_object(v, max_depth=max_depth, _depth=_depth + 1)
+            if found:
+                return found
+    elif isinstance(obj, list):
+        for item in obj:
+            found = _find_program_in_object(
+                item, max_depth=max_depth, _depth=_depth + 1
+            )
+            if found:
+                return found
+    return None
+
+
+def extract_program_from_sequrity_response(
+    response_json: dict[str, Any],
+) -> Optional[str]:
+    """Best-effort extraction of PLLM program text from a chat/completions JSON body."""
+
+    def _str_prog(val: Any) -> Optional[str]:
+        if isinstance(val, str) and val.strip():
+            return val
+        return None
+
+    p = _str_prog(response_json.get("program"))
+    if p:
+        return p
+
+    choices = response_json.get("choices") or []
+    if not choices:
+        return None
+    ch0 = choices[0]
+    if not isinstance(ch0, dict):
+        return None
+
+    p = _str_prog(ch0.get("program"))
+    if p:
+        return p
+
+    msg = ch0.get("message")
+    if isinstance(msg, dict):
+        p = _str_prog(msg.get("program"))
+        if p:
+            return p
+
+        for nest_key in ("sequrity", "metadata", "extensions"):
+            nest = msg.get(nest_key)
+            if isinstance(nest, dict):
+                p = _str_prog(nest.get("program"))
+                if p:
+                    return p
+
+        content = msg.get("content")
+        if isinstance(content, str):
+            s = content.strip()
+            if s.startswith("{"):
+                try:
+                    data = json.loads(s)
+                    if isinstance(data, dict):
+                        p = _str_prog(data.get("program"))
+                        if p:
+                            return p
+                except json.JSONDecodeError:
+                    pass
+        elif isinstance(content, list):
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text":
+                    text = part.get("text")
+                    if isinstance(text, str) and text.strip().startswith("{"):
+                        try:
+                            data = json.loads(text.strip())
+                            if isinstance(data, dict):
+                                p = _str_prog(data.get("program"))
+                                if p:
+                                    return p
+                        except json.JSONDecodeError:
+                            continue
+
+    return _find_program_in_object(ch0, max_depth=10)
+
+
+def _render_sequrity_program(program: str) -> None:
+    """Print program source with Rich, or plain fallback."""
+    try:
+        from rich.console import Console
+        from rich.panel import Panel
+        from rich.syntax import Syntax
+
+        Console().print(
+            Panel(
+                Syntax(
+                    program,
+                    "python",
+                    theme="monokai",
+                    line_numbers=True,
+                    word_wrap=True,
+                ),
+                title="Sequrity generated program",
+                border_style="cyan",
+            )
+        )
+    except Exception as exc:
+        logger.debug("Rich program render failed ({}), using plain print", exc)
+        print("\n--- Sequrity generated program ---\n", program, "\n---\n", flush=True)
 
 
 def assistant_message_from_response(
@@ -205,6 +323,10 @@ def assistant_message_from_response(
     finish_reason = choices[0].get("finish_reason")
     if finish_reason == "length":
         logger.warning("Output might be incomplete due to token limit (Sequrity).")
+
+    program = extract_program_from_sequrity_response(response_json)
+    if program:
+        _render_sequrity_program(program)
 
     return AssistantMessage(
         role="assistant",

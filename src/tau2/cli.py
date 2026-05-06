@@ -425,8 +425,9 @@ def add_run_args(parser):
         default=None,
         choices=["none", "both", "user", "agent"],
         help=(
-            "Sequrity Control when SEQURITY_CONTROL_ENABLED=1: omit flag for legacy env-only behavior; "
-            "none=disable; both=all LLM calls; agent or user=only that simulator (+matching tagged paths)."
+            "Sequrity Control routing (omit = LiteLLM only): "
+            "none=disable; both=all LLM calls; agent or user=only that simulator (+matching tagged paths). "
+            "Requires SEQURITY_API_KEY and provider keys when not none."
         ),
     )
 

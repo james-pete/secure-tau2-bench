@@ -458,8 +458,8 @@ class BaseRunConfig(BaseModel):
         Optional[Literal["none", "both", "user", "agent"]],
         Field(
             description=(
-                "Sequrity Control routing (requires SEQURITY_CONTROL_ENABLED). "
-                "Unset: legacy env-only toggle. "
+                "Sequrity Control routing via CLI --sequrity-mode (runner sets ContextVar). "
+                "Unset: LiteLLM only. "
                 "none: disable Sequrity. "
                 "both: all LLM calls. "
                 "agent / user: only that role's tagged generate() calls."
