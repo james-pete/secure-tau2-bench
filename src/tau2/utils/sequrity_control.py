@@ -9,8 +9,8 @@ SEQURITY_API_KEY plus a provider key (X-Api-Key), e.g. OPENROUTER_API_KEY when
 SEQURITY_SERVICE_PROVIDER=openrouter.
 
 Requests always send ``X-Features`` = dual-LLM JSON (``{"agent_arch": "dual-llm"}``),
-and ``X-Config`` = ``FineGrainedConfigHeader(response_format=ResponseFormatOverrides(include_program=True))``
-(REST: ``{"response_format": {"include_program": true}}``).
+and ``X-Config`` with ``response_format.include_program`` plus ``fsm.max_n_turns`` (50; Sequrity
+default dual-LLM preset is 5).
 ``X-Policy`` is not sent. When the API returns a generated program (often under
 ``choices[0].message.program`` or JSON ``content``, not only when ``content`` is set —
 tool-call rounds frequently have ``content`` null), it is printed (Rich syntax highlight).
@@ -106,9 +106,12 @@ def _validate_config() -> tuple[str, str, str, str]:
 # Serialized form of Sequrity ``FeaturesHeader.dual_llm()`` (REST tutorial / OpenAPI parity).
 FEATURES_HEADER_DUAL_LLM_JSON = json.dumps({"agent_arch": "dual-llm"})
 
-# FineGrainedConfigHeader(response_format=ResponseFormatOverrides(include_program=True))
+# FineGrainedConfigHeader.dual_llm(include_program=True, max_n_turns=50)-aligned defaults.
 FINE_GRAINED_CONFIG_INCLUDE_PROGRAM_JSON = json.dumps(
-    {"response_format": {"include_program": True}}
+    {
+        "response_format": {"include_program": True},
+        "fsm": {"max_n_turns": 50},
+    }
 )
 
 
