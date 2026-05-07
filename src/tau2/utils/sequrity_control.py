@@ -110,7 +110,7 @@ FEATURES_HEADER_DUAL_LLM_JSON = json.dumps({"agent_arch": "dual-llm"})
 FINE_GRAINED_CONFIG_INCLUDE_PROGRAM_JSON = json.dumps(
     {
         "response_format": {"include_program": True},
-        "fsm": {"max_n_turns": 50},
+        "fsm": {"max_n_turns": 50, "max_pllm_steps": 1},
     }
 )
 

@@ -4,6 +4,9 @@ and modified to fit the needs of the project.
 """
 
 import inspect
+import json
+import types
+import typing
 from abc import ABC, abstractmethod
 from inspect import Signature
 from typing import Any, Callable, Dict, List, Optional
@@ -12,6 +15,34 @@ from docstring_parser import parse
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, create_model, field_serializer
 from typing_extensions import override
+
+
+def get_output_desc(output_type: Any) -> str:
+    """Human-readable summary of the tool return type for LLM tool descriptions."""
+    if inspect.isclass(output_type) and issubclass(output_type, BaseModel):
+        try:
+            vals = output_type.model_json_schema()
+            descriptor = ""
+            properties = vals.get("properties") or {}
+            if "returns" in properties:
+                ret = properties["returns"]
+                if isinstance(ret, dict) and "type" in ret:
+                    descriptor += "Tool returns: " + str(ret["type"])
+                else:
+                    descriptor += "Tool returns: " + str(ret)
+            if "$defs" in vals:
+                descriptor += "Definitions for the return type: " + str(vals["$defs"])
+            return descriptor or json.dumps(vals)
+        except Exception:
+            return str(output_type.model_json_schema())
+
+    origin = typing.get_origin(output_type)
+    if origin is not None and origin in (list, types.UnionType, typing.Union):
+        args = typing.get_args(output_type)
+        inner = ", ".join(get_output_desc(cl) for cl in args)
+        return f"[{inner}]"
+
+    return str(output_type)
 
 
 class BaseTool(BaseModel, ABC):
@@ -139,11 +170,20 @@ class Tool(BaseTool):
     @property
     def openai_schema(self) -> dict:
         """Get the OpenAI schema of the tool."""
+        desc = self._get_description()
+
+        if self.returns:
+            f_desc = get_output_desc(self.returns)
+            desc += "\nOutput schema:" + f_desc + "\n"
+
+        # if self.raises:
+        #     desc += "\nErrors:" + str(self.raises) + "\n"
+
         return {
             "type": "function",
             "function": {
                 "name": self.name,
-                "description": self._get_description(),
+                "description": desc,
                 "parameters": self.params.model_json_schema(),
             },
         }
