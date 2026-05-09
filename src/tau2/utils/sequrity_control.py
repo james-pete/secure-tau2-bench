@@ -9,7 +9,8 @@ SEQURITY_API_KEY plus a provider key (X-Api-Key), e.g. OPENROUTER_API_KEY when
 SEQURITY_SERVICE_PROVIDER=openrouter.
 
 Requests always send ``X-Features`` = dual-LLM JSON (``{"agent_arch": "dual-llm"}``),
-and ``X-Config`` with ``response_format.include_program`` plus ``fsm`` overrides aligned with
+and ``X-Config`` with ``response_format`` (``include_program``, ``strip_response_content``),
+``prompt.pllm.flavor``, and ``fsm`` overrides aligned with
 Sequrity ``FineGrainedConfigHeader.dual_llm`` (tool-filter threshold, turns, PLLM steps, etc.).
 ``X-Policy`` is not sent. When the API returns a generated program (often under
 ``choices[0].message.program`` or JSON ``content``, not only when ``content`` is set —
@@ -110,14 +111,20 @@ FEATURES_HEADER_DUAL_LLM_JSON = json.dumps({"agent_arch": "dual-llm"})
 # https://sequrity-ai.github.io/sequrity-api/dev/control/reference/sequrity_client/headers/config_header/
 FINE_GRAINED_CONFIG_INCLUDE_PROGRAM_JSON = json.dumps(
     {
-        "response_format": {"include_program": True},
+        "response_format": {
+            "include_program": True,
+            "strip_response_content": False,
+        },
+        "prompt": {"pllm": {"flavor": "universal"}},
         "fsm": {
             "min_num_tools_for_filtering": 100,
             "max_n_turns": 100,
-            "max_pllm_steps": 1,
+            "max_pllm_steps": 20,
             "clear_history_every_n_attempts": 5,
             "retry_on_policy_violation": True,
             "enable_multistep_planning": False,
+            "clear_session_meta": "never",
+            "disable_rllm": True,
         },
     }
 )
